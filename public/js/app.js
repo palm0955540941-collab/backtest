@@ -69,7 +69,7 @@ async function checkHealth() {
 
     if (data.success && data.status === 'online') {
       badgeDot.className = 'w-2 h-2 rounded-full bg-emerald-400';
-      badgeText.textContent = 'MySQL เชื่อมต่อแล้ว (XAMPP)';
+      badgeText.textContent = 'MySQL เชื่อมต่อแล้ว (SQLite)';
       badgeText.className = 'text-emerald-400';
       banner.classList.add('hidden');
     } else {
