@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="th" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>XAUUSD Backtest Journal - บันทึกและวิเคราะห์สถิติระบบเทรดทองคำ</title>
+  
+  <!-- Theme Init Script (Prevent Flash) -->
+  <script>
+    if (localStorage.getItem('theme') === 'light') {
+      document.documentElement.classList.remove('dark');
+    } else {
+      document.documentElement.classList.add('dark');
+    }
+  </script>
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            gold: {
+              400: '#facc15',
+              500: '#eab308',
+              600: '#ca8a04',
+            },
+            dark: {
+              800: '#111827',
+              850: '#0f172a',
+              900: '#0b0f19',
+              950: '#030712'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Lucide Icons CDN -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="bg-slate-50 dark:bg-dark-900 text-slate-800 dark:text-slate-100 min-h-screen flex flex-col antialiased selection:bg-gold-500 selection:text-black">
+
+  <!-- ================= TOP NAVBAR ================= -->
+  <header class="sticky top-0 z-40 glass-header px-4 lg:px-8 py-3 flex items-center justify-between">
+    <div class="flex items-center space-x-3">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500 to-yellow-300 flex items-center justify-center shadow-lg shadow-amber-500/20 text-slate-950 font-black text-xl">
+        🥇
+      </div>
+      <div>
+        <div class="flex items-center space-x-2">
+          <h1 class="text-lg font-bold tracking-tight text-slate-900 dark:text-white">XAUUSD Backtest Journal</h1>
+          <span class="text-xs px-2 py-0.5 rounded-full bg-gold-500/15 text-amber-700 dark:text-gold-400 font-semibold border border-amber-500/30">
+            CFD Gold System
+          </span>
+        </div>
+        <p class="text-xs text-slate-500 dark:text-slate-400">เน้นเก็บสถิติ Win Rate, Risk:Reward (R) และการบันทึกเหตุผล</p>
+      </div>
+    </div>
+
+    <div class="flex items-center space-x-2.5">
+      <!-- Database Status Badge -->
+      <div id="dbStatusBadge" class="hidden sm:flex items-center space-x-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700">
+        <span class="w-2 h-2 rounded-full bg-slate-400 animate-pulse" id="dbStatusDot"></span>
+        <span id="dbStatusText" class="text-slate-600 dark:text-slate-300">กำลังตรวจสอบ MySQL...</span>
+      </div>
+
+      <!-- Theme Switcher Button -->
+      <button onclick="toggleTheme()" id="themeToggleBtn" class="p-2 rounded-xl bg-white hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition flex items-center justify-center shadow-sm" title="สลับธีม สว่าง (Light) / มืด (Dark)">
+        <i data-lucide="sun" id="themeSunIcon" class="w-4 h-4 hidden dark:inline-block text-amber-400"></i>
+        <i data-lucide="moon" id="themeMoonIcon" class="w-4 h-4 inline-block dark:hidden text-slate-700"></i>
+      </button>
+
+      <!-- Export CSV -->
+      <a href="/api/export/csv" class="hidden sm:inline-flex items-center space-x-1.5 px-3 py-2 rounded-lg text-xs font-medium bg-white hover:bg-slate-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition shadow-sm">
+        <i data-lucide="download" class="w-4 h-4"></i>
+        <span>Export CSV</span>
+      </a>
+
+      <!-- Add Trade Button -->
+      <button onclick="openTradeModal()" class="inline-flex items-center space-x-2 px-4 py-2 rounded-xl text-sm font-semibold bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 shadow-md shadow-amber-500/25 transition transform active:scale-95">
+        <i data-lucide="plus-circle" class="w-4 h-4"></i>
+        <span>+ บันทึกการเทรด</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ================= MAIN CONTAINER ================= -->
+  <main class="flex-1 px-4 lg:px-8 py-6 max-w-7xl mx-auto w-full space-y-6">
+
+    <!-- Database Warning Banner (shown if XAMPP MySQL is disconnected) -->
+    <div id="dbErrorBanner" class="hidden p-4 rounded-xl bg-red-950/70 border border-red-800 text-red-200 flex items-start space-x-3">
+      <i data-lucide="alert-triangle" class="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5"></i>
+      <div class="text-sm">
+        <span class="font-semibold">ยังเชื่อมต่อ MySQL ไม่สำเร็จ:</span>
+        <p class="text-xs text-red-300 mt-0.5">
+          กรุณาเปิดโปรแกรม <b>XAMPP</b> แล้วกด <b>Start ที่ MySQL</b> จากนั้นรีเฟรชหน้านี้ หรือตรวจสอบการตั้งค่า User/Password ในไฟล์ 
+          <code class="px-1.5 py-0.5 rounded bg-black/40 text-amber-300 font-mono">config/database.js</code>
+        </p>
+      </div>
+    </div>
+
+    <!-- ================= FILTER BAR ================= -->
+    <div class="glass-card rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4">
+      <div class="flex items-center space-x-2 text-sm font-semibold text-slate-700 dark:text-slate-300">
+        <i data-lucide="filter" class="w-4 h-4 text-amber-500 dark:text-gold-400"></i>
+        <span>ตัวกรองสถิติ (Filters):</span>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2.5 text-xs">
+        <!-- Strategy Filter -->
+        <select id="filterStrategy" onchange="loadAllData()" class="bg-white dark:bg-dark-850 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-800 dark:text-slate-200 focus:outline-none focus:border-gold-500 shadow-sm">
+          <option value="ALL">ระบบทั้งหมด (All Strategies)</option>
+        </select>
+
+        <!-- Session Filter -->
+        <select id="filterSession" onchange="loadAllData()" class="bg-white dark:bg-dark-850 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-800 dark:text-slate-200 focus:outline-none focus:border-gold-500 shadow-sm">
+          <option value="ALL">ช่วงเวลาทั้งหมด (All Sessions)</option>
+          <option value="Asian">Asian (เอเชีย: 06:00 - 14:00 น.)</option>
+          <option value="London">London (ลอนดอน: 14:00 - 19:00 น.)</option>
+          <option value="Overlap">Overlap (ลอนดอน+นิวยอร์ก: 19:00 - 22:00 น.)</option>
+          <option value="New York">New York (นิวยอร์ก: 22:00 - 04:00 น.)</option>
+        </select>
+
+        <!-- Outcome Filter -->
+        <select id="filterOutcome" onchange="loadAllData()" class="bg-white dark:bg-dark-850 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-800 dark:text-slate-200 focus:outline-none focus:border-gold-500 shadow-sm">
+          <option value="ALL">ผลลัพธ์ทั้งหมด (All Outcomes)</option>
+          <option value="WIN">WIN (ชนะได้ R)</option>
+          <option value="LOSS">LOSS (แพ้เสีย R)</option>
+          <option value="BE">BE (เสมอตัว)</option>
+        </select>
+
+        <!-- Timeframe Filter -->
+        <select id="filterTimeframe" onchange="loadAllData()" class="bg-white dark:bg-dark-850 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-800 dark:text-slate-200 focus:outline-none focus:border-gold-500 shadow-sm">
+          <option value="ALL">ไทม์เฟรมทั้งหมด (All TFs)</option>
+          <option value="M1">M1</option>
+          <option value="M5">M5</option>
+          <option value="M15">M15</option>
+          <option value="M30">M30</option>
+          <option value="H1">H1</option>
+          <option value="H4">H4</option>
+          <option value="D1">D1</option>
+        </select>
+
+        <!-- Reset Button -->
+        <button onclick="resetFilters()" title="ล้างตัวกรอง" class="px-2.5 py-1.5 rounded-lg bg-white hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 transition shadow-sm">
+          <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- ================= STATS KPI CARDS ================= -->
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 lg:gap-4">
+      
+      <!-- Total Trades -->
+      <div class="glass-card rounded-2xl p-4 flex flex-col justify-between">
+        <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs">
+          <span>จำนวนเทรดทั้งหมด</span>
+          <i data-lucide="layers" class="w-4 h-4 text-slate-400"></i>
+        </div>
+        <div class="mt-2">
+          <div class="text-2xl font-bold tracking-tight text-slate-900 dark:text-white" id="statTotalTrades">0</div>
+          <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-1 flex items-center space-x-1">
+            <span class="text-emerald-600 dark:text-emerald-400 font-semibold" id="statWins">0W</span>
+            <span>-</span>
+            <span class="text-rose-600 dark:text-rose-400 font-semibold" id="statLosses">0L</span>
+            <span>-</span>
+            <span class="text-slate-500 dark:text-slate-400 font-semibold" id="statBes">0BE</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Win Rate -->
+      <div class="glass-card rounded-2xl p-4 flex flex-col justify-between">
+        <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs">
+          <span>Win Rate (%)</span>
+          <i data-lucide="pie-chart" class="w-4 h-4 text-emerald-500 dark:text-emerald-400"></i>
+        </div>
+        <div class="mt-2">
+          <div class="text-2xl font-bold tracking-tight text-emerald-600 dark:text-emerald-400" id="statWinRate">0%</div>
+          <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+            Breakeven: <span id="statBeRate">0%</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Total Realized R -->
+      <div class="glass-card rounded-2xl p-4 flex flex-col justify-between">
+        <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs">
+          <span>กำไรสะสม (Total R)</span>
+          <i data-lucide="trending-up" class="w-4 h-4 text-amber-500 dark:text-gold-400"></i>
+        </div>
+        <div class="mt-2">
+          <div class="text-2xl font-bold tracking-tight text-amber-600 dark:text-gold-400" id="statTotalR">+0.00 R</div>
+          <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+            R-Multiple Growth
+          </div>
+        </div>
+      </div>
+
+      <!-- Expectancy (Avg R per trade) -->
+      <div class="glass-card rounded-2xl p-4 flex flex-col justify-between">
+        <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs">
+          <span>Expectancy (Avg R)</span>
+          <i data-lucide="target" class="w-4 h-4 text-cyan-500 dark:text-cyan-400"></i>
+        </div>
+        <div class="mt-2">
+          <div class="text-2xl font-bold tracking-tight text-cyan-600 dark:text-cyan-400" id="statAvgR">0.00 R</div>
+          <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+            ต่อ 1 การเทรด
+          </div>
+        </div>
+      </div>
+
+      <!-- Profit Factor -->
+      <div class="glass-card rounded-2xl p-4 flex flex-col justify-between">
+        <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs">
+          <span>Profit Factor</span>
+          <i data-lucide="activity" class="w-4 h-4 text-indigo-500 dark:text-indigo-400"></i>
+        </div>
+        <div class="mt-2">
+          <div class="text-2xl font-bold tracking-tight text-indigo-600 dark:text-indigo-400" id="statProfitFactor">0.00</div>
+          <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+            Avg W: <span class="text-emerald-600 dark:text-emerald-400 font-semibold" id="statAvgWinR">0R</span> / L: <span class="text-rose-600 dark:text-rose-400 font-semibold" id="statAvgLossR">0R</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Max Drawdown -->
+      <div class="glass-card rounded-2xl p-4 flex flex-col justify-between">
+        <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs">
+          <span>Max Drawdown (R)</span>
+          <i data-lucide="arrow-down-right" class="w-4 h-4 text-rose-500 dark:text-rose-400"></i>
+        </div>
+        <div class="mt-2">
+          <div class="text-2xl font-bold tracking-tight text-rose-600 dark:text-rose-400" id="statMaxDD">0.00 R</div>
+          <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+            Max Streak: <span class="text-emerald-600 dark:text-emerald-400 font-semibold" id="statStreakWin">0W</span> / <span class="text-rose-600 dark:text-rose-400 font-semibold" id="statStreakLoss">0L</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ================= CHARTS SECTION ================= -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      
+      <!-- Main Chart: Equity Curve (R Multiples) -->
+      <div class="glass-card rounded-2xl p-5 lg:col-span-2 flex flex-col">
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center space-x-2">
+            <div class="w-3 h-3 rounded-full bg-amber-500 dark:bg-gold-400"></div>
+            <h2 class="font-bold text-sm text-slate-900 dark:text-white">Equity Curve (การเติบโตสะสมเป็น R-Multiple)</h2>
+          </div>
+          <span class="text-xs text-slate-500 dark:text-slate-400">เรียงตามลำดับเวลาการเทรด</span>
+        </div>
+        <div class="relative flex-1 min-h-[280px]">
+          <canvas id="equityCurveChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Win / Loss Doughnut Chart -->
+      <div class="glass-card rounded-2xl p-5 flex flex-col">
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center space-x-2">
+            <div class="w-3 h-3 rounded-full bg-emerald-500 dark:bg-emerald-400"></div>
+            <h2 class="font-bold text-sm text-slate-900 dark:text-white">สัดส่วนผลลัพธ์ (Win / Loss / BE)</h2>
+          </div>
+        </div>
+        <div class="relative flex-1 min-h-[220px] flex items-center justify-center">
+          <canvas id="outcomePieChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Performance by Strategy -->
+      <div class="glass-card rounded-2xl p-5 flex flex-col">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="font-bold text-sm text-slate-900 dark:text-white flex items-center space-x-2">
+            <i data-lucide="bar-chart-2" class="w-4 h-4 text-amber-500 dark:text-gold-400"></i>
+            <span>ผลงานแยกตาม Strategy / Setup</span>
+          </h2>
+        </div>
+        <div class="relative flex-1 min-h-[200px]">
+          <canvas id="strategyChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Performance by Session -->
+      <div class="glass-card rounded-2xl p-5 flex flex-col">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="font-bold text-sm text-slate-900 dark:text-white flex items-center space-x-2">
+            <i data-lucide="clock" class="w-4 h-4 text-cyan-500 dark:text-cyan-400"></i>
+            <span>ผลงานแยกตาม Session</span>
+          </h2>
+        </div>
+        <div class="relative flex-1 min-h-[200px]">
+          <canvas id="sessionChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Performance by Direction (BUY vs SELL) -->
+      <div class="glass-card rounded-2xl p-5 flex flex-col">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="font-bold text-sm text-slate-900 dark:text-white flex items-center space-x-2">
+            <i data-lucide="repeat" class="w-4 h-4 text-indigo-500 dark:text-indigo-400"></i>
+            <span>สถิติ BUY vs SELL</span>
+          </h2>
+        </div>
+        <div class="relative flex-1 min-h-[200px]">
+          <canvas id="directionChart"></canvas>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ================= TRADES TABLE SECTION ================= -->
+    <div class="glass-card rounded-2xl p-5 space-y-4">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h2 class="font-bold text-base text-slate-900 dark:text-white flex items-center space-x-2">
+            <i data-lucide="book-open" class="w-4 h-4 text-amber-500 dark:text-gold-400"></i>
+            <span>สมุดบันทึกการเทรด (Trade Log Journal)</span>
+          </h2>
+          <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">คลิกที่แถวหรือปุ่ม 'ดูรายละเอียด' เพื่อเปิดดูกราฟและเหตุผลการเข้าเทรด</p>
+        </div>
+
+        <div class="flex items-center space-x-2">
+          <span class="text-xs text-slate-500 dark:text-slate-400">พบ <b id="tradeCountDisplay" class="text-slate-900 dark:text-white font-bold">0</b> รายการ</span>
+        </div>
+      </div>
+
+      <!-- Responsive Table -->
+      <div class="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+        <table class="w-full text-left text-xs whitespace-nowrap">
+          <thead class="bg-slate-100/80 dark:bg-dark-850 text-slate-600 dark:text-slate-400 font-semibold uppercase tracking-wider text-[11px] border-b border-slate-200 dark:border-slate-800">
+            <tr>
+              <th class="py-3 px-4"># / วันที่-เวลา</th>
+              <th class="py-3 px-3">ทิศทาง</th>
+              <th class="py-3 px-3">TF / Session</th>
+              <th class="py-3 px-3">Setup / ระบบ</th>
+              <th class="py-3 px-3">ราคา (Entry / SL / TP / Exit)</th>
+              <th class="py-3 px-3 text-center">Planned RR</th>
+              <th class="py-3 px-3 text-center">Realized R</th>
+              <th class="py-3 px-3 text-center">ผลลัพธ์</th>
+              <th class="py-3 px-3 text-center">ภาพกราฟ</th>
+              <th class="py-3 px-4 text-right">การกระทำ</th>
+            </tr>
+          </thead>
+          <tbody id="tradesTableBody" class="divide-y divide-slate-200 dark:divide-slate-800/60 font-medium">
+            <!-- Render via JS -->
+            <tr>
+              <td colspan="10" class="py-8 text-center text-slate-400">
+                <i data-lucide="inbox" class="w-8 h-8 mx-auto mb-2 opacity-40"></i>
+                กำลังโหลดข้อมูล...
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- ================= MODAL: ADD / EDIT TRADE ================= -->
+  <div id="tradeModal" class="fixed inset-0 z-50 hidden bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
+    <div class="glass-card bg-white dark:bg-dark-850 border border-slate-200 dark:border-slate-700 w-full max-w-3xl rounded-2xl shadow-2xl modal-fade-in my-auto max-h-[92vh] flex flex-col text-slate-800 dark:text-slate-100">
+      
+      <!-- Modal Header -->
+      <div class="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-shrink-0">
+        <div class="flex items-center space-x-2">
+          <div class="w-8 h-8 rounded-lg bg-amber-500/15 dark:bg-gold-500/20 text-amber-600 dark:text-gold-400 flex items-center justify-center font-bold">
+            <i data-lucide="edit-3" class="w-4 h-4"></i>
+          </div>
+          <h3 id="modalTitle" class="text-base font-bold text-slate-900 dark:text-white">บันทึกการเทรด Backtest ใหม่</h3>
+        </div>
+        <button onclick="closeTradeModal()" class="text-slate-400 hover:text-slate-700 dark:hover:text-white p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Modal Body (Form) -->
+      <form id="tradeForm" onsubmit="handleTradeSubmit(event)" class="overflow-y-auto p-6 space-y-5 flex-1">
+        <input type="hidden" id="editTradeId" value="">
+
+        <!-- Row 1: Date, Pair, Direction -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <!-- Trade Date & Time -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">วันที่และเวลา (Date & Time) *</label>
+            <input type="datetime-local" id="inputTradeDate" required onchange="autoDetectSessionFromDate(this.value)" class="w-full bg-slate-50 dark:bg-dark-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-amber-500 shadow-sm">
+          </div>
+
+          <!-- Pair -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">คู่เงิน / สินทรัพย์</label>
+            <input type="text" id="inputPair" value="XAUUSD" class="w-full bg-slate-50 dark:bg-dark-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-amber-600 dark:text-gold-400 focus:outline-none focus:border-amber-500 font-bold shadow-sm">
+          </div>
+
+          <!-- Direction Toggle -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">ทิศทาง (Direction) *</label>
+            <div class="grid grid-cols-2 gap-2">
+              <button type="button" id="btnDirectionBuy" onclick="setDirection('BUY')" class="py-2 text-xs font-bold rounded-xl border border-emerald-500 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 transition flex items-center justify-center space-x-1 shadow-sm">
+                <span>BUY (Long)</span>
+              </button>
+              <button type="button" id="btnDirectionSell" onclick="setDirection('SELL')" class="py-2 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-dark-900 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition flex items-center justify-center space-x-1 shadow-sm">
+                <span>SELL (Short)</span>
+              </button>
+            </div>
+            <input type="hidden" id="inputDirection" value="BUY">
+          </div>
+        </div>
+
+        <!-- Row 2: Market Session Selector (Clean 4-Card Segmented Tabs) -->
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center space-x-1.5">
+              <i data-lucide="clock" class="w-3.5 h-3.5 text-amber-500 dark:text-gold-400"></i>
+              <span>ช่วงเวลาตลาด (Session - เวลาประเทศไทย)</span>
+            </label>
+            <span class="text-[10px] text-emerald-600 dark:text-emerald-400 flex items-center space-x-1">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span>เลือกตามเวลาอัตโนมัติ</span>
+            </span>
+          </div>
+
+          <!-- 4 Clean Session Cards -->
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <!-- Asian Card -->
+            <button type="button" id="sessionCard_Asian" onclick="setSession('Asian')" class="session-card p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-dark-900/80 text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700 hover:text-slate-800 dark:hover:text-slate-200 transition flex flex-col items-center justify-center text-center cursor-pointer shadow-sm">
+              <div class="font-bold text-xs flex items-center space-x-1">
+                <span>🌏</span>
+                <span>Asian</span>
+              </div>
+              <div class="text-[10px] text-slate-500 dark:text-slate-400 font-mono mt-0.5">06:00 - 14:00</div>
+            </button>
+
+            <!-- London Card -->
+            <button type="button" id="sessionCard_London" onclick="setSession('London')" class="session-card active p-2.5 rounded-xl border border-amber-500 dark:border-gold-500/80 bg-amber-50 dark:bg-gold-500/15 text-amber-900 dark:text-white transition flex flex-col items-center justify-center text-center cursor-pointer shadow-sm">
+              <div class="font-bold text-xs flex items-center space-x-1">
+                <span>🇬🇧</span>
+                <span>London</span>
+              </div>
+              <div class="text-[10px] text-amber-700 dark:text-gold-300 font-mono mt-0.5">14:00 - 19:00</div>
+            </button>
+
+            <!-- Overlap Card -->
+            <button type="button" id="sessionCard_Overlap" onclick="setSession('Overlap')" class="session-card p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-dark-900/80 text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700 hover:text-slate-800 dark:hover:text-slate-200 transition flex flex-col items-center justify-center text-center cursor-pointer shadow-sm">
+              <div class="font-bold text-xs flex items-center space-x-1">
+                <span>🔥</span>
+                <span>Overlap</span>
+              </div>
+              <div class="text-[10px] text-slate-500 dark:text-slate-400 font-mono mt-0.5">19:00 - 22:00</div>
+            </button>
+
+            <!-- New York Card -->
+            <button type="button" id="sessionCard_NewYork" onclick="setSession('New York')" class="session-card p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-dark-900/80 text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700 hover:text-slate-800 dark:hover:text-slate-200 transition flex flex-col items-center justify-center text-center cursor-pointer shadow-sm">
+              <div class="font-bold text-xs flex items-center space-x-1">
+                <span>🇺🇸</span>
+                <span>New York</span>
+              </div>
+              <div class="text-[10px] text-slate-500 dark:text-slate-400 font-mono mt-0.5">22:00 - 04:00</div>
+            </button>
+          </div>
+          <input type="hidden" id="inputSession" value="London">
+        </div>
+
+        <!-- Row 3: Strategy & Timeframe (Balanced 2-Columns) -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <!-- Strategy / Setup (Span 2 cols) -->
+          <div class="sm:col-span-2">
+            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">ระบบ / Setup (Strategy) *</label>
+            <input type="text" id="inputStrategy" list="strategyList" placeholder="เช่น SMC, Liquidity Sweep, FVG, Breakout" required class="w-full bg-slate-50 dark:bg-dark-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-amber-500 shadow-sm">
+            <datalist id="strategyList"></datalist>
+          </div>
+
+          <!-- Timeframe -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">ไทม์เฟรม (Timeframe)</label>
+            <select id="inputTimeframe" class="w-full bg-slate-50 dark:bg-dark-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-amber-500 shadow-sm">
+              <option value="M1">M1 (1 นาที)</option>
+              <option value="M5">M5 (5 นาที)</option>
+              <option value="M15" selected>M15 (15 นาที)</option>
+              <option value="M30">M30 (30 นาที)</option>
+              <option value="H1">H1 (1 ชั่วโมง)</option>
+              <option value="H4">H4 (4 ชั่วโมง)</option>
+              <option value="D1">D1 (Day)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Row 4: Prices (Entry, SL, TP, Exit) with Auto-Calculator -->
+        <div class="bg-slate-50/80 dark:bg-dark-900/80 p-4 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3 shadow-sm">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center space-x-1.5">
+              <i data-lucide="calculator" class="w-3.5 h-3.5 text-amber-500 dark:text-gold-400"></i>
+              <span>ราคาเข้า-ออก (ระบบจะคำนวณ RR จาก SL และ TP ให้อัตโนมัติ)</span>
+            </span>
+            <span class="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">✨ คำนวณ RR อัตโนมัติ</span>
+          </div>
+
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div>
+              <label class="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">Entry Price (ราคาเข้า) *</label>
+              <input type="number" step="0.01" id="inputEntryPrice" placeholder="2650.00" oninput="calculateRR()" class="w-full bg-white dark:bg-dark-850 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-amber-500 font-semibold shadow-sm">
+            </div>
+            <div>
+              <label class="block text-[11px] font-semibold text-rose-600 dark:text-rose-400 mb-1">Stop Loss (SL) *</label>
+              <input type="number" step="0.01" id="inputSlPrice" placeholder="2645.00" oninput="calculateRR()" class="w-full bg-white dark:bg-dark-850 border border-rose-200 dark:border-rose-900/60 rounded-lg px-2.5 py-1.5 text-xs text-rose-700 dark:text-rose-200 focus:outline-none focus:border-rose-500 font-semibold shadow-sm">
+            </div>
+            <div>
+              <label class="block text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 mb-1">Take Profit (TP) *</label>
+              <input type="number" step="0.01" id="inputTpPrice" placeholder="2660.00" oninput="calculateRR()" class="w-full bg-white dark:bg-dark-850 border border-emerald-200 dark:border-emerald-900/60 rounded-lg px-2.5 py-1.5 text-xs text-emerald-700 dark:text-emerald-200 focus:outline-none focus:border-emerald-500 font-semibold shadow-sm">
+            </div>
+            <div>
+              <label class="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">Exit Price (ราคาปิด - ถ้ามี)</label>
+              <input type="number" step="0.01" id="inputExitPrice" placeholder="ถ้าชน TP/SL เว้นไว้ได้" oninput="calculateRR()" class="w-full bg-white dark:bg-dark-850 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-amber-500 shadow-sm">
+            </div>
+          </div>
+
+          <!-- Real-time RR calculation preview badge -->
+          <div id="rrCalculationPreview" class="pt-2 border-t border-slate-200 dark:border-slate-800/80 flex flex-wrap items-center justify-between text-xs text-slate-500 dark:text-slate-400 gap-2">
+            <div class="flex items-center space-x-3">
+              <span>ระยะ SL: <b id="previewRiskPoints" class="text-rose-600 dark:text-rose-400 font-mono">-</b> จุด</span>
+              <span>ระยะ TP: <b id="previewRewardPoints" class="text-emerald-600 dark:text-emerald-400 font-mono">-</b> จุด</span>
+            </div>
+            <div>
+              <span>RR ตามแผน (Planned RR): <b id="previewPlannedRrText" class="text-amber-600 dark:text-gold-400 font-bold font-mono">1 : -</b></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Row 5: Outcome & Auto Realized R Display -->
+        <div class="bg-slate-50/80 dark:bg-dark-900/60 p-4 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3 shadow-sm">
+          <div class="flex items-center justify-between">
+            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200">
+              ผลลัพธ์การเทรด (Outcome) - เลือกว่าไม้จบแบบไหน:
+            </label>
+            <span class="text-[11px] text-slate-500 dark:text-slate-400">ระบบจะใส่ R ให้อัตโนมัติตามปุ่มที่กด</span>
+          </div>
+
+          <!-- Outcome Buttons -->
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <button type="button" id="btnOutcomeWin" onclick="setOutcome('WIN')" class="py-2.5 px-3 text-xs font-bold rounded-xl border border-emerald-500 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 transition flex flex-col items-center justify-center shadow-sm">
+              <span>🎯 ชนะ (ชน TP)</span>
+              <span id="labelWinR" class="text-[10px] text-emerald-600 dark:text-emerald-300 font-mono mt-0.5">ได้ +2.00 R</span>
+            </button>
+            <button type="button" id="btnOutcomeLoss" onclick="setOutcome('LOSS')" class="py-2.5 px-3 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-dark-850 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition flex flex-col items-center justify-center shadow-sm">
+              <span>🛑 แพ้ (โดน SL)</span>
+              <span class="text-[10px] text-rose-600 dark:text-rose-400 font-mono mt-0.5">เสีย -1.00 R</span>
+            </button>
+            <button type="button" id="btnOutcomeBe" onclick="setOutcome('BE')" class="py-2.5 px-3 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-dark-850 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition flex flex-col items-center justify-center shadow-sm">
+              <span>⚖️ เสมอตัว (BE)</span>
+              <span class="text-[10px] text-slate-500 dark:text-slate-400 font-mono mt-0.5">0.00 R</span>
+            </button>
+          </div>
+          <input type="hidden" id="inputOutcome" value="WIN">
+
+          <!-- Auto Realized RR Display Card -->
+          <div class="flex items-center justify-between p-3 rounded-xl bg-white dark:bg-dark-850 border border-slate-200 dark:border-slate-800 shadow-sm">
+            <div class="flex items-center space-x-2">
+              <span class="text-xs text-slate-500 dark:text-slate-400">สถิติ R ที่ได้จริง (Realized RR):</span>
+              <span id="displayRealizedR" class="px-2.5 py-0.5 rounded-lg bg-emerald-500/15 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 font-mono font-black text-sm border border-emerald-500/30">
+                +2.00 R
+              </span>
+            </div>
+
+            <!-- Optional Manual Override Toggle -->
+            <button type="button" onclick="toggleManualR()" class="text-[11px] text-slate-500 dark:text-slate-400 hover:text-amber-600 dark:hover:text-gold-400 transition flex items-center space-x-1">
+              <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
+              <span>ปรับแก้ค่า R เอง (ถ้าต้องการ)</span>
+            </button>
+          </div>
+
+          <!-- Hidden inputs for form submit -->
+          <input type="hidden" id="inputPlannedRr" value="2.0">
+          <input type="hidden" id="inputRealizedRr" value="2.0">
+
+          <!-- Collapsible Manual Override Section -->
+          <div id="manualRSection" class="hidden pt-2 border-t border-slate-200 dark:border-slate-800 flex items-center space-x-2">
+            <label class="text-[11px] text-slate-500 dark:text-slate-400 whitespace-nowrap">ระบุ R เอง:</label>
+            <input type="number" step="0.01" id="inputManualRealizedRr" oninput="syncManualR(this.value)" placeholder="เช่น +1.5 หรือ -0.5" class="w-28 bg-white dark:bg-dark-900 border border-amber-500/50 rounded-lg px-2 py-1 text-xs font-bold text-amber-700 dark:text-gold-400 focus:outline-none">
+            <span class="text-[10px] text-slate-400 dark:text-slate-500">(ใช้เฉพาะเมื่อปิดมือก่อนจุด หรือต้องการกำหนดเอง)</span>
+          </div>
+        </div>
+
+        <!-- Row 6: Chart Screenshot Uploads (Before & After) -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <!-- Chart Before -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
+              <span>📷 ภาพกราฟตอนเข้า (Chart Before)</span>
+              <span class="text-[10px] text-slate-400">ลากวาง / วางคลิปบอร์ดได้</span>
+            </label>
+            <div class="dropzone p-3 rounded-xl text-center cursor-pointer bg-slate-50 dark:bg-dark-900 relative shadow-sm" id="dropzoneBefore" onclick="document.getElementById('fileChartBefore').click()">
+              <input type="file" id="fileChartBefore" accept="image/*" class="hidden" onchange="previewSelectedImage(this, 'previewBefore', 'removeBeforeBtn')">
+              <div id="previewBefore" class="hidden relative max-h-36 overflow-hidden rounded-lg">
+                <img src="" class="w-full h-auto object-cover rounded-lg">
+              </div>
+              <div id="placeholderBefore" class="py-4 text-slate-400 text-xs flex flex-col items-center">
+                <i data-lucide="image" class="w-6 h-6 mb-1 text-slate-400 dark:text-slate-500"></i>
+                <span>คลิกเลือกรูปภาพ หรือกด Ctrl+V เพื่อวาง</span>
+              </div>
+            </div>
+            <button type="button" id="removeBeforeBtn" onclick="removeImage('before')" class="hidden text-[11px] text-rose-500 hover:underline mt-1 font-medium">ลบรูปนี้</button>
+            <input type="hidden" id="remove_chart_before" value="false">
+          </div>
+
+          <!-- Chart After -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
+              <span>🏁 ภาพกราฟตอนจบ (Chart After)</span>
+              <span class="text-[10px] text-slate-400">ลากวาง / วางคลิปบอร์ดได้</span>
+            </label>
+            <div class="dropzone p-3 rounded-xl text-center cursor-pointer bg-slate-50 dark:bg-dark-900 relative shadow-sm" id="dropzoneAfter" onclick="document.getElementById('fileChartAfter').click()">
+              <input type="file" id="fileChartAfter" accept="image/*" class="hidden" onchange="previewSelectedImage(this, 'previewAfter', 'removeAfterBtn')">
+              <div id="previewAfter" class="hidden relative max-h-36 overflow-hidden rounded-lg">
+                <img src="" class="w-full h-auto object-cover rounded-lg">
+              </div>
+              <div id="placeholderAfter" class="py-4 text-slate-400 text-xs flex flex-col items-center">
+                <i data-lucide="image" class="w-6 h-6 mb-1 text-slate-400 dark:text-slate-500"></i>
+                <span>คลิกเลือกรูปภาพ หรือกด Ctrl+V เพื่อวาง</span>
+              </div>
+            </div>
+            <button type="button" id="removeAfterBtn" onclick="removeImage('after')" class="hidden text-[11px] text-rose-500 hover:underline mt-1 font-medium">ลบรูปนี้</button>
+            <input type="hidden" id="remove_chart_after" value="false">
+          </div>
+        </div>
+
+        <!-- Row 7: Entry Reasons & Checklist -->
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">เหตุผลการเข้าเทรด / Checklist (Entry Reason) 🎯</label>
+          <textarea id="inputEntryReason" rows="2" placeholder="เช่น กวาด Liquidity High ของ Asia Session + เกิด MSS + เข้าที่ FVG 15M..." class="w-full bg-slate-50 dark:bg-dark-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-amber-500 shadow-sm"></textarea>
+        </div>
+
+        <!-- Row 8: Exit Reason & Lessons / Mistakes -->
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">เหตุผลการออก / ข้อคิด & ข้อผิดพลาด (Exit Reason & Lessons) 💡</label>
+          <textarea id="inputExitReason" rows="2" placeholder="เช่น ถือตามแผนชน TP 1:2 พอดี / หรือ ปิดมือก่อนเพราะกลัว / เลื่อน SL มาบังทุนเร็วเกินไป..." class="w-full bg-slate-50 dark:bg-dark-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-amber-500 shadow-sm"></textarea>
+        </div>
+
+        <!-- Row 9: Tags -->
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">แท็กช่วยจำ (Tags)</label>
+          <input type="text" id="inputTags" placeholder="เช่น Followed Plan, Early Exit, FOMO, News Spike, High Quality" class="w-full bg-slate-50 dark:bg-dark-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-amber-500 shadow-sm">
+        </div>
+
+        <!-- Submit Buttons -->
+        <div class="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end space-x-3">
+          <button type="button" onclick="closeTradeModal()" class="px-4 py-2 text-xs font-semibold rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+            ยกเลิก
+          </button>
+          <button type="submit" id="btnSubmitTrade" class="px-5 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 shadow-md shadow-amber-500/20 transition">
+            บันทึกการเทรด
+          </button>
+        </div>
+      </form>
+
+    </div>
+  </div>
+
+  <!-- ================= MODAL: VIEW TRADE DETAIL ================= -->
+  <div id="detailModal" class="fixed inset-0 z-50 hidden bg-slate-900/60 dark:bg-black/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
+    <div class="glass-card bg-white dark:bg-dark-850 border border-slate-200 dark:border-slate-700 w-full max-w-4xl rounded-2xl shadow-2xl modal-fade-in my-auto max-h-[92vh] flex flex-col text-slate-800 dark:text-slate-100">
+      
+      <!-- Detail Header -->
+      <div class="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-shrink-0">
+        <div class="flex items-center space-x-3" id="detailHeaderBadges">
+          <!-- Populated via JS -->
+        </div>
+        <button onclick="closeDetailModal()" class="text-slate-400 hover:text-slate-700 dark:hover:text-white p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Detail Body -->
+      <div class="overflow-y-auto p-6 space-y-6 flex-1 text-xs">
+        
+        <!-- Summary Info Grid -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 dark:bg-dark-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+          <div>
+            <span class="text-slate-500 dark:text-slate-400 text-[11px] block">วันที่/เวลา</span>
+            <span class="font-semibold text-slate-900 dark:text-white text-xs" id="detailDate">-</span>
+          </div>
+          <div>
+            <span class="text-slate-500 dark:text-slate-400 text-[11px] block">ระบบ / Strategy</span>
+            <span class="font-semibold text-amber-600 dark:text-gold-400 text-xs" id="detailStrategy">-</span>
+          </div>
+          <div>
+            <span class="text-slate-500 dark:text-slate-400 text-[11px] block">Planned RR</span>
+            <span class="font-semibold text-slate-800 dark:text-slate-200 text-xs" id="detailPlannedRr">-</span>
+          </div>
+          <div>
+            <span class="text-slate-500 dark:text-slate-400 text-[11px] block">Realized R</span>
+            <span class="font-bold text-sm" id="detailRealizedR">-</span>
+          </div>
+        </div>
+
+        <!-- Prices breakdown -->
+        <div class="grid grid-cols-4 gap-2 text-center bg-slate-50/70 dark:bg-dark-900/50 p-3 rounded-xl border border-slate-200 dark:border-slate-800/60">
+          <div>
+            <div class="text-[10px] text-slate-500 dark:text-slate-400">Entry Price</div>
+            <div class="font-semibold text-slate-800 dark:text-slate-200" id="detailEntryPrice">-</div>
+          </div>
+          <div>
+            <div class="text-[10px] text-rose-600 dark:text-rose-400">Stop Loss</div>
+            <div class="font-semibold text-rose-600 dark:text-rose-300" id="detailSlPrice">-</div>
+          </div>
+          <div>
+            <div class="text-[10px] text-emerald-600 dark:text-emerald-400">Take Profit</div>
+            <div class="font-semibold text-emerald-600 dark:text-emerald-300" id="detailTpPrice">-</div>
+          </div>
+          <div>
+            <div class="text-[10px] text-cyan-600 dark:text-cyan-400">Exit Price</div>
+            <div class="font-semibold text-cyan-700 dark:text-cyan-300" id="detailExitPrice">-</div>
+          </div>
+        </div>
+
+        <!-- Charts Side by Side -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="space-y-1.5">
+            <span class="font-semibold text-slate-700 dark:text-slate-300 flex items-center space-x-1">
+              <i data-lucide="camera" class="w-3.5 h-3.5 text-amber-500 dark:text-gold-400"></i>
+              <span>ภาพกราฟตอนเข้า (Chart Before)</span>
+            </span>
+            <div id="detailChartBeforeContainer" class="rounded-xl overflow-hidden bg-slate-100 dark:bg-dark-900 border border-slate-200 dark:border-slate-800 flex items-center justify-center min-h-[200px]">
+              <!-- Image or None -->
+            </div>
+          </div>
+          <div class="space-y-1.5">
+            <span class="font-semibold text-slate-700 dark:text-slate-300 flex items-center space-x-1">
+              <i data-lucide="flag" class="w-3.5 h-3.5 text-amber-500 dark:text-gold-400"></i>
+              <span>ภาพกราฟตอนจบ (Chart After)</span>
+            </span>
+            <div id="detailChartAfterContainer" class="rounded-xl overflow-hidden bg-slate-100 dark:bg-dark-900 border border-slate-200 dark:border-slate-800 flex items-center justify-center min-h-[200px]">
+              <!-- Image or None -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Reasons & Lessons -->
+        <div class="space-y-3">
+          <div class="bg-slate-50 dark:bg-dark-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+            <h4 class="font-semibold text-slate-800 dark:text-slate-200 mb-1 flex items-center space-x-1.5">
+              <span>🎯 เหตุผลการเข้าเทรด (Entry Reason)</span>
+            </h4>
+            <p class="text-slate-700 dark:text-slate-300 whitespace-pre-wrap leading-relaxed" id="detailEntryReason">-</p>
+          </div>
+
+          <div class="bg-slate-50 dark:bg-dark-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+            <h4 class="font-semibold text-slate-800 dark:text-slate-200 mb-1 flex items-center space-x-1.5">
+              <span>💡 ข้อคิด & ข้อผิดพลาดที่ได้เรียนรู้ (Lessons / Notes)</span>
+            </h4>
+            <p class="text-slate-700 dark:text-slate-300 whitespace-pre-wrap leading-relaxed" id="detailExitReason">-</p>
+          </div>
+        </div>
+
+        <!-- Tags -->
+        <div id="detailTagsContainer" class="flex flex-wrap gap-1.5">
+          <!-- Badges -->
+        </div>
+
+      </div>
+
+      <!-- Detail Footer Actions -->
+      <div class="px-6 py-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between flex-shrink-0 bg-slate-50/80 dark:bg-dark-900/50">
+        <button onclick="handleDeleteFromDetail()" class="text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 text-xs font-semibold flex items-center space-x-1">
+          <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+          <span>ลบรายการนี้</span>
+        </button>
+        <div class="flex items-center space-x-2">
+          <button onclick="handleEditFromDetail()" class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-sm flex items-center space-x-1">
+            <i data-lucide="edit-2" class="w-3.5 h-3.5"></i>
+            <span>แก้ไข</span>
+          </button>
+          <button onclick="closeDetailModal()" class="px-4 py-1.5 text-xs font-semibold rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold shadow-sm">
+            ปิด
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ================= MODAL: IMAGE LIGHTBOX (ZOOM) ================= -->
+  <div id="lightboxModal" class="fixed inset-0 z-60 hidden bg-black/95 flex flex-col items-center justify-center p-4" onclick="closeLightbox()">
+    <div class="absolute top-4 right-4 z-10 flex items-center space-x-3">
+      <span class="text-xs text-slate-400">คลิกที่ใดก็ได้เพื่อปิด</span>
+      <button class="text-white p-2 rounded-full bg-slate-800/80 hover:bg-slate-700 transition">
+        <i data-lucide="x" class="w-6 h-6"></i>
+      </button>
+    </div>
+    <img id="lightboxImage" src="" class="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl" onclick="event.stopPropagation()">
+  </div>
+
+  <!-- Footer -->
+  <footer class="py-4 text-center text-xs text-slate-400 dark:text-slate-500 border-t border-slate-200 dark:border-slate-800/60 mt-auto">
+    XAUUSD Backtest Journal &copy; Localhost &bull; MySQL Database Powered
+  </footer>
+
+  <!-- App Javascript -->
+  <script src="js/app.js"></script>
+</body>
+</html>
