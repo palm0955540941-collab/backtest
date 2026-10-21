@@ -3,7 +3,7 @@ const router = express.Router();
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
-const { getPool } = require('../config/database');
+const { getDb } = require('../config/database');
 
 // กำหนดโฟลเดอร์สำหรับเก็บรูปภาพชาร์ต
 const uploadsDir = path.join(__dirname, '..', 'uploads');
@@ -59,7 +59,7 @@ function removeFileSafe(filename) {
 // -----------------------------------------------------------------------------
 router.get('/', async (req, res) => {
   try {
-    const pool = getPool();
+    const db = await getDb();
     const { strategy, session, outcome, direction, timeframe, startDate, endDate, sort } = req.query;
 
     let query = 'SELECT * FROM trades WHERE 1=1';
@@ -100,7 +100,7 @@ router.get('/', async (req, res) => {
       query += ' ORDER BY trade_date DESC, id DESC';
     }
 
-    const [rows] = await pool.query(query, params);
+    const rows = await db.all(query, params);
     res.json({ success: true, count: rows.length, data: rows });
   } catch (error) {
     console.error('Error fetching trades:', error);
@@ -113,12 +113,12 @@ router.get('/', async (req, res) => {
 // -----------------------------------------------------------------------------
 router.get('/:id', async (req, res) => {
   try {
-    const pool = getPool();
-    const [rows] = await pool.query('SELECT * FROM trades WHERE id = ?', [req.params.id]);
-    if (rows.length === 0) {
+    const db = await getDb();
+    const row = await db.get('SELECT * FROM trades WHERE id = ?', [req.params.id]);
+    if (!row) {
       return res.status(404).json({ success: false, message: 'ไม่พบรายการเทรดนี้' });
     }
-    res.json({ success: true, data: rows[0] });
+    res.json({ success: true, data: row });
   } catch (error) {
     res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาดในการดึงข้อมูล', error: error.message });
   }
@@ -132,7 +132,7 @@ router.post('/', upload.fields([
   { name: 'chart_after', maxCount: 1 }
 ]), async (req, res) => {
   try {
-    const pool = getPool();
+    const db = await getDb();
     const {
       trade_date,
       pair = 'XAUUSD',
@@ -160,7 +160,6 @@ router.post('/', upload.fields([
     const tpNum = tp_price ? parseFloat(tp_price) : null;
     const exitNum = exit_price ? parseFloat(exit_price) : null;
 
-    // คำนวณ Planned RR อัตโนมัติจาก Entry, SL, TP ถ้าไม่ได้ระบุ
     if ((finalPlannedRr === null || isNaN(finalPlannedRr)) && entryNum !== null && slNum !== null && tpNum !== null) {
       const risk = Math.abs(entryNum - slNum);
       if (risk > 0) {
@@ -168,7 +167,6 @@ router.post('/', upload.fields([
       }
     }
 
-    // คำนวณ Realized RR อัตโนมัติจาก Exit หรือ Outcome ถ้าไม่ได้ระบุ
     if (finalRealizedRr === null || isNaN(finalRealizedRr)) {
       if (exitNum !== null && entryNum !== null && slNum !== null) {
         const risk = Math.abs(entryNum - slNum);
@@ -228,11 +226,11 @@ router.post('/', upload.fields([
       tags || ''
     ];
 
-    const [result] = await pool.query(sql, values);
+    const result = await db.run(sql, values);
     res.status(201).json({
       success: true,
       message: 'บันทึกข้อมูลสำเร็จ',
-      insertId: result.insertId
+      insertId: result.lastID
     });
   } catch (error) {
     console.error('Error creating trade:', error);
@@ -248,15 +246,13 @@ router.put('/:id', upload.fields([
   { name: 'chart_after', maxCount: 1 }
 ]), async (req, res) => {
   try {
-    const pool = getPool();
+    const db = await getDb();
     const tradeId = req.params.id;
 
-    // ตรวจสอบว่ามีรายการเดิมอยู่หรือไม่
-    const [existing] = await pool.query('SELECT * FROM trades WHERE id = ?', [tradeId]);
-    if (existing.length === 0) {
+    const oldTrade = await db.get('SELECT * FROM trades WHERE id = ?', [tradeId]);
+    if (!oldTrade) {
       return res.status(404).json({ success: false, message: 'ไม่พบรายการที่ต้องการแก้ไข' });
     }
-    const oldTrade = existing[0];
 
     const {
       trade_date,
@@ -282,7 +278,6 @@ router.put('/:id', upload.fields([
     let chart_before = oldTrade.chart_before;
     let chart_after = oldTrade.chart_after;
 
-    // ถ้ามีการอัปโหลดรูปใหม่แทนที่ หรือสั่งลบรูปเดิม
     if (req.files && req.files['chart_before']) {
       removeFileSafe(oldTrade.chart_before);
       chart_before = req.files['chart_before'][0].filename;
@@ -364,7 +359,7 @@ router.put('/:id', upload.fields([
       tradeId
     ];
 
-    await pool.query(sql, values);
+    await db.run(sql, values);
     res.json({ success: true, message: 'อัปเดตข้อมูลสำเร็จ' });
   } catch (error) {
     console.error('Error updating trade:', error);
@@ -377,19 +372,18 @@ router.put('/:id', upload.fields([
 // -----------------------------------------------------------------------------
 router.delete('/:id', async (req, res) => {
   try {
-    const pool = getPool();
+    const db = await getDb();
     const tradeId = req.params.id;
 
-    const [rows] = await pool.query('SELECT chart_before, chart_after FROM trades WHERE id = ?', [tradeId]);
-    if (rows.length === 0) {
+    const row = await db.get('SELECT chart_before, chart_after FROM trades WHERE id = ?', [tradeId]);
+    if (!row) {
       return res.status(404).json({ success: false, message: 'ไม่พบรายการที่ต้องการลบ' });
     }
 
-    // ลบไฟล์ภาพที่ผูกอยู่
-    removeFileSafe(rows[0].chart_before);
-    removeFileSafe(rows[0].chart_after);
+    removeFileSafe(row.chart_before);
+    removeFileSafe(row.chart_after);
 
-    await pool.query('DELETE FROM trades WHERE id = ?', [tradeId]);
+    await db.run('DELETE FROM trades WHERE id = ?', [tradeId]);
     res.json({ success: true, message: 'ลบรายการเทรดสำเร็จ' });
   } catch (error) {
     console.error('Error deleting trade:', error);
@@ -402,8 +396,8 @@ router.delete('/:id', async (req, res) => {
 // -----------------------------------------------------------------------------
 router.get('/meta/strategies', async (req, res) => {
   try {
-    const pool = getPool();
-    const [rows] = await pool.query(`
+    const db = await getDb();
+    const rows = await db.all(`
       SELECT DISTINCT strategy FROM trades 
       WHERE strategy IS NOT NULL AND strategy != '' 
       ORDER BY strategy ASC
