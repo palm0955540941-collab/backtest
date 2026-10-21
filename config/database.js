@@ -1,34 +1,36 @@
-/**
- * ==============================================================================
- * ไฟล์ตั้งค่าการเชื่อมต่อฐานข้อมูล SQLite (SQLite Database Connection)
- * ==============================================================================
- */
-
 const path = require('path');
-const sqlite3 = require('sqlite3');
-const { open } = require('sqlite');
+const Database = require('better-sqlite3');
 
-// เก็บอินสแตนซ์ของ Database ไว้ใช้งานร่วมกัน
 let dbInstance = null;
 
-async function getDb() {
+function getDb() {
   if (!dbInstance) {
-    dbInstance = await open({
-      filename: path.join(__dirname, '..', 'database.sqlite'),
-      driver: sqlite3.Database
-    });
+    const dbPath = path.join(__dirname, '..', 'database.sqlite');
+    dbInstance = new Database(dbPath);
+    // เปิดโหมด WAL เพื่อประสิทธิภาพที่ดีขึ้น
+    dbInstance.pragma('journal_mode = WAL');
   }
-  return dbInstance;
+  return {
+    async all(query, params = []) {
+      return dbInstance.prepare(query).all(params);
+    },
+    async get(query, params = []) {
+      return dbInstance.prepare(query).get(params);
+    },
+    async run(query, params = []) {
+      const info = dbInstance.prepare(query).run(params);
+      return { lastID: info.lastInsertRowid, changes: info.changes };
+    },
+    async exec(query) {
+      return dbInstance.exec(query);
+    }
+  };
 }
 
-/**
- * ฟังก์ชันสร้าง Table 'trades' อัตโนมัติเมื่อเริ่มเปิด Server ครั้งแรก
- */
 async function initializeDatabase() {
   try {
-    const db = await getDb();
+    const db = getDb();
 
-    // สร้างตาราง trades ด้วย Syntax ที่รองรับ SQLite
     const createTradesTableSQL = `
       CREATE TABLE IF NOT EXISTS trades (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -56,18 +58,10 @@ async function initializeDatabase() {
     `;
 
     await db.exec(createTradesTableSQL);
-
-    // สร้าง Index เพิ่มประสิทธิภาพการค้นหา
-    await db.exec(`CREATE INDEX IF NOT EXISTS idx_date ON trades (trade_date);`);
-    await db.exec(`CREATE INDEX IF NOT EXISTS idx_outcome ON trades (outcome);`);
-    await db.exec(`CREATE INDEX IF NOT EXISTS idx_strategy ON trades (strategy);`);
-    await db.exec(`CREATE INDEX IF NOT EXISTS idx_session ON trades (session);`);
-
     console.log(`[Database] เชื่อมต่อและตรวจสอบตาราง 'trades' ใน SQLite สำเร็จ`);
     return true;
   } catch (error) {
-    console.error('[Database Error] เกิดข้อผิดพลาดในการตั้งค่า SQLite:');
-    console.error(`- ข้อความแจ้งเตือน: ${error.message}\n`);
+    console.error('[Database Error] เกิดข้อผิดพลาดในการตั้งค่า SQLite:', error.message);
     return false;
   }
 }
