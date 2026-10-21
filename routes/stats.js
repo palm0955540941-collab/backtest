@@ -1,11 +1,11 @@
 const express = require('express');
 const router = express.Router();
-const { getPool } = require('../config/database');
+const { getDb } = require('../config/database');
 
 // GET /api/stats - คำนวณสถิติระบบเทรด Winrate, R:R, Max Drawdown, Equity Curve
 router.get('/', async (req, res) => {
   try {
-    const pool = getPool();
+    const db = await getDb();
     const { strategy, session, timeframe, startDate, endDate } = req.query;
 
     let query = 'SELECT * FROM trades WHERE 1=1';
@@ -34,7 +34,7 @@ router.get('/', async (req, res) => {
 
     query += ' ORDER BY trade_date ASC, id ASC';
 
-    const [trades] = await pool.query(query, params);
+    const trades = await db.all(query, params);
 
     const totalTrades = trades.length;
 
@@ -99,7 +99,6 @@ router.get('/', async (req, res) => {
       totalR += r;
       runningR += r;
 
-      // Track Max Drawdown (Peak to Valley)
       if (runningR > peakR) {
         peakR = runningR;
       }
@@ -108,7 +107,6 @@ router.get('/', async (req, res) => {
         maxDrawdownR = currentDrawdown;
       }
 
-      // Equity curve point
       equityCurve.push({
         trade_number: index + 1,
         id: trade.id,
@@ -120,7 +118,6 @@ router.get('/', async (req, res) => {
         cumulative_r: parseFloat(runningR.toFixed(2))
       });
 
-      // Wins / Losses / BE
       if (trade.outcome === 'WIN') {
         wins++;
         totalWinR += r;
@@ -139,7 +136,6 @@ router.get('/', async (req, res) => {
         currentStreakLosses = 0;
       }
 
-      // Group by Strategy
       const stratName = trade.strategy || 'General';
       if (!strategyMap[stratName]) {
         strategyMap[stratName] = { total: 0, wins: 0, totalR: 0 };
@@ -148,7 +144,6 @@ router.get('/', async (req, res) => {
       if (trade.outcome === 'WIN') strategyMap[stratName].wins++;
       strategyMap[stratName].totalR += r;
 
-      // Group by Session
       const sessName = trade.session || 'London';
       if (!sessionMap[sessName]) {
         sessionMap[sessName] = { total: 0, wins: 0, totalR: 0 };
@@ -157,7 +152,6 @@ router.get('/', async (req, res) => {
       if (trade.outcome === 'WIN') sessionMap[sessName].wins++;
       sessionMap[sessName].totalR += r;
 
-      // Group by Timeframe
       const tfName = trade.timeframe || 'M15';
       if (!timeframeMap[tfName]) {
         timeframeMap[tfName] = { total: 0, wins: 0, totalR: 0 };
@@ -166,7 +160,6 @@ router.get('/', async (req, res) => {
       if (trade.outcome === 'WIN') timeframeMap[tfName].wins++;
       timeframeMap[tfName].totalR += r;
 
-      // Group by Direction
       if (directionMap[trade.direction]) {
         directionMap[trade.direction].total++;
         if (trade.outcome === 'WIN') directionMap[trade.direction].wins++;
@@ -182,7 +175,6 @@ router.get('/', async (req, res) => {
     const avgLossR = losses > 0 ? parseFloat((totalLossR / losses).toFixed(2)) : 0;
     const profitFactor = totalLossR > 0 ? parseFloat((totalWinR / totalLossR).toFixed(2)) : totalWinR > 0 ? 99.9 : 0;
 
-    // Helper format group data
     const formatGroup = (map) => {
       return Object.keys(map).map(key => {
         const item = map[key];
