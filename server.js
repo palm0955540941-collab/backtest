@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 require('dotenv').config();
 
-const { initializeDatabase, getPool } = require('./config/database');
+const { initializeDatabase, getDb } = require('./config/database');
 const tradesRouter = require('./routes/trades');
 const statsRouter = require('./routes/stats');
 
@@ -24,21 +24,21 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/api/trades', tradesRouter);
 app.use('/api/stats', statsRouter);
 
-// Health check endpoint สำหรับตรวจสอบสถานะการเชื่อมต่อ MySQL
+// Health check endpoint สำหรับตรวจสอบสถานะการเชื่อมต่อ SQLite
 app.get('/api/health', async (req, res) => {
   try {
-    const pool = getPool();
-    await pool.query('SELECT 1');
+    const db = await getDb();
+    await db.get('SELECT 1');
     res.json({
       success: true,
       status: 'online',
-      message: 'เชื่อมต่อฐานข้อมูล MySQL สำเร็จ'
+      message: 'เชื่อมต่อฐานข้อมูล SQLite สำเร็จ'
     });
   } catch (error) {
     res.status(503).json({
       success: false,
       status: 'offline',
-      message: 'ยังไม่สามารถเชื่อมต่อ MySQL ได้ กรุณาตรวจสอบว่าเปิด XAMPP แล้วหรือไม่',
+      message: 'ยังไม่สามารถเชื่อมต่อฐานข้อมูลได้',
       error: error.message
     });
   }
@@ -47,8 +47,8 @@ app.get('/api/health', async (req, res) => {
 // Export CSV endpoint
 app.get('/api/export/csv', async (req, res) => {
   try {
-    const pool = getPool();
-    const [trades] = await pool.query('SELECT * FROM trades ORDER BY trade_date ASC, id ASC');
+    const db = await getDb();
+    const trades = await db.all('SELECT * FROM trades ORDER BY trade_date ASC, id ASC');
 
     const headers = [
       'ID', 'Date', 'Pair', 'Direction', 'Timeframe', 'Session', 'Strategy',
@@ -104,9 +104,9 @@ async function startServer() {
     console.log(`🚀 XAUUSD Backtest Journal Web App พร้อมใช้งานแล้ว!`);
     console.log(`🌐 เปิดเว็บได้ที่: http://localhost:${PORT}`);
     console.log(`📁 โฟลเดอร์เก็บรูปภาพ: /uploads`);
-    console.log(`⚙️  ตั้งค่า MySQL ที่: config/database.js หรือ .env`);
+    console.log(`⚙️  ใช้งานฐานข้อมูล SQLite (database.sqlite)`);
     if (!isDbReady) {
-      console.log(`⚠️  คำเตือน: ยังเชื่อมต่อ MySQL ไม่สำเร็จ อย่าลืมเปิด Apache & MySQL ใน XAMPP!`);
+      console.log(`⚠️  คำเตือน: ไม่สามารถสร้างหรือเชื่อมต่อ SQLite ได้`);
     }
     console.log(`=======================================================`);
   });
